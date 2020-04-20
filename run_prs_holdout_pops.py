@@ -31,7 +31,8 @@ def main(args):
                     '30840': 'direct_bilirubin_irnt', '30730': 'gamma_glutamyltransferase_irnt'}
 
     start = time.time()
-    ss = hl.read_table('gs://apcdr/ukb_holdout/ukb31063.gwas_holdout_sumstats_pheno37.ht')  # added
+    ss = hl.read_table('gs://apcdr/ukb_holdout/ukb31063.gwas_holdout_sumstats_pheno37.ht')  # i merged this in hail
+    # make more flexible - allow to load in data from plink
 
     if args.mt_comb:
         contig = 'autosomes'

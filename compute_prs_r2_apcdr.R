@@ -26,7 +26,7 @@ bootstrap_CIs <- function(my_subset) {
 
 # Get R^2 and p-value for nested model
 compute_r2 <- function(phenotype, p, dataset=prs_agg) {
-  print(paste(phenotype, p))
+  print(paste(phenotype, p)) # check this
   my_subset <- subset(dataset, p_threshold==p & prs_pheno==phenotype)
   model1 <- lm(as.formula(sprintf("true_pheno ~ SCORE + %s", paste(covariates, collapse = " + "))), data=my_subset)
   model0 <- lm(as.formula(sprintf("true_pheno ~ %s", paste(covariates, collapse = " + "))), data=my_subset)
@@ -70,6 +70,10 @@ date(); r2_combined <- map2_dfr(crossArg$x, crossArg$y, compute_r2); date()
 
 write.table(r2_combined, 'apcdr_from_ukbb.r2.txt', quote = F, row.names = F, sep='\t')
 
+
+# Plot R^2 results --------------------------------------------------------
+
+r2_combined <- read.table('apcdr_from_ukbb.r2.txt', header=T)
 max_r2 <- r2_combined %>%
   group_by(pheno) %>%
   arrange(desc(r2)) %>%
@@ -95,3 +99,62 @@ save_plot('apcdr_from_ukbb_r2_top.pdf', p1, base_height=6, base_width=10)
 
 r2_combined$rand <- rnorm(nrow(r2_combined), 0, 1)
 r2_combined[sample(1:nrow(r2_combined), round(nrow(r2_combined) * 0.99, 0)), 'rand'] <- 0
+
+
+# Split some Uganda PRS by phenos -----------------------------------------
+
+# low accuracy in WC PRS specific to APCDR due to malnutrition?
+apcdr_phenos <- read.delim('../gwas_phenotypes_28Oct14.txt', header=T, sep=' ') %>%
+  mutate(weight_range=case_when(BMI < 18.5 ~ 'Underweight\n(BMI<18.5)',
+                                BMI >= 18.5 & BMI < 25 ~ 'Normal weight\n(18.5<=BMI<25)',
+                                BMI >= 25 & BMI < 30 ~ 'Overweight\n(25<=BMI<30)',
+                                BMI >= 30 ~ 'Obese\n(BMI>=30)'))
+
+p_weight <- ggplot(subset(apcdr_phenos, weight_range!='NA'), aes(x=as.numeric(as.character(WC)), fill=weight_range)) +
+  geom_density(alpha=0.8) +
+  scale_fill_brewer(palette='Set1') +
+  labs(x='Waist circumference', y='Density', fill='Weight range') +
+  theme_classic() +
+  theme(axis.text = element_text(size = 14, color='black'),
+        text = element_text(size=16),
+        legend.text = element_text(size=12),
+        legend.position = c(0.8, 0.8))
+
+ggsave('apcdr_bmi_wc.pdf', height=5, width=5)  
+
+
+apcdr_phenos <- apcdr_phenos %>%
+  select(GWAS_ID, weight_range)
+prs_agg_wc <- subset(prs_agg, prs_pheno=='WC') %>%
+  left_join(apcdr_phenos, by=c('IID'='GWAS_ID')) %>%
+  mutate(prs_pheno=weight_range)
+prs_agg_wc$sex_surv <- as.numeric(prs_agg_wc$sex_surv)
+prs_agg_wc$weight_range <- factor(prs_agg_wc$weight_range, levels=c('Underweight\n(BMI<18.5)',
+                                                                    'Normal weight\n(18.5<=BMI<25)',
+                                                                    'Overweight\n(25<=BMI<30)',
+                                                                    'Obese\n(BMI>=30)'))
+
+
+
+date(); r2_comb_wc <- map_dfr(levels(prs_agg_wc$weight_range), function(x) { 
+  map_dfr(p_thresholds, function(y) { 
+    compute_r2(x, y, prs_agg_wc)}) } ); date()
+
+max_r2_wc <- r2_comb_wc %>%
+  group_by(pheno) %>%
+  arrange(desc(r2)) %>%
+  slice(1)
+max_r2_wc$r2 <- as.numeric(max_r2_wc$r2)
+max_r2_wc$CI95_low <- as.numeric(max_r2_wc$X2.5.)
+max_r2_wc$CI95_high <- as.numeric(max_r2_wc$X97.5.)
+max_r2_wc <- max_r2_wc %>% arrange(desc(r2))
+max_r2_wc$pheno <- factor(max_r2_wc$pheno, levels=max_r2_wc$pheno)
+
+p_wc <- ggplot(max_r2_wc, aes(x=pheno, y=r2)) +
+  geom_point(position=pd) +
+  geom_errorbar(aes(ymin=CI95_low, ymax=CI95_high), width=0) +
+  labs(x='Phenotype', y=bquote('Max'~R^2)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size=10),
+        text = element_text(size=12, color='black'),
+        axis.text.y = element_text(size=10))

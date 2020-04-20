@@ -3,6 +3,13 @@ import argparse
 import pandas as pd
 
 
+def irnt_funct(he: hl.expr.Expression, output_loc: str = 'irnt'):
+    ht = he._indices.source
+    n_rows = ht.count()
+    ht = ht.order_by(he).add_index()
+    return ht.annotate(**{output_loc: hl.qnorm((ht.idx + 0.5) / n_rows)})
+
+
 def get_overlapping_phenos(apcdr_ukb, gwas_phenos, gwas_biomarkers, pheno_table, overwrite):
     # get which phenotypes exist in apcdr data
     pheno_gwas = hl.import_table(apcdr_ukb)
@@ -24,6 +31,10 @@ def get_overlapping_phenos(apcdr_ukb, gwas_phenos, gwas_biomarkers, pheno_table,
             raw_phenos.append(pheno)
         else:
             biomarker.append(pheno)
+    irnt.append('whr')
+
+    ht_phenotypes = ht_phenotypes.annotate(whr=ht_phenotypes['48_raw'] / ht_phenotypes['49_raw'])
+    ht_phenotypes = irnt_funct(ht_phenotypes.whr, 'whr_irnt').key_by('s')
 
     # now select phenotypes that are in apcdr data
     ht_phenos = ht_phenotypes.select(*[x + '_irnt' for x in irnt] + raw_phenos)
@@ -31,7 +42,8 @@ def get_overlapping_phenos(apcdr_ukb, gwas_phenos, gwas_biomarkers, pheno_table,
     # filter biomarkers to codes
     biomarkers = ['cholesterol_irnt', 'hdl_cholesterol_irnt', 'ldl_irnt', 'triglycerides_irnt',
                   'albumin_irnt', 'alkaline_phosphatase_irnt', 'alanine_aminotransferase_irnt',
-                  'aspartate_aminotransferase_irnt', 'direct_bilirubin_irnt', 'gamma_glutamyltransferase_irnt']
+                  'aspartate_aminotransferase_irnt', 'direct_bilirubin_irnt',
+                  'gamma_glutamyltransferase_irnt', 'glycated_haemoglobin_irnt']
     ht_biomarkers = hl.read_table(gwas_biomarkers).select(*biomarkers)
 
     # now join biomarkers with phenotypes
@@ -79,7 +91,8 @@ def main(args):
         covariates=ht_covariates[mt.s])
 
     # filter keeping samples in gwas, i.e. exclude holdout samples
-    mt = mt.filter_cols(ht_samples[mt.s].in_gwas == 'TRUE')
+    # mt = mt.filter_cols(ht_samples[mt.s].in_gwas == 'TRUE')
+    mt = mt.filter_cols(ht_samples[mt.s].in_gwas == 'FALSE')
 
     # mt.write(args.mt, overwrite=args.overwrite)
     #
@@ -91,11 +104,14 @@ def main(args):
     pheno2 = phenotypes[10:20]
     pheno3 = phenotypes[20:30]
     pheno4 = phenotypes[30:len(phenotypes)]
+    pheno_leftover = ['whr_irnt', 'glycated_haemoglobin_irnt']
 
-    run_grouped_regressions(mt, args.holdout_ss_output, pheno1, 'pheno1')
+    # run_grouped_regressions(mt, args.holdout_ss_output, pheno1, 'pheno1')
     # run_grouped_regressions(mt, args.holdout_ss_output, pheno2, 'pheno2')
     # run_grouped_regressions(mt, args.holdout_ss_output, pheno3, 'pheno3')
     # run_grouped_regressions(mt, args.holdout_ss_output, pheno4, 'pheno4')
+    # run_grouped_regressions(mt, args.holdout_ss_output, pheno_leftover, 'pheno_leftover')
+    run_grouped_regressions(mt, args.holdout_ss_output, phenotypes, 'target_holdout')
 
 
 
