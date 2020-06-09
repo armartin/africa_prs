@@ -34,7 +34,7 @@ def main(args):
     ss_info = open(args.ss_info)
 
     #  load relevent 1kG reference panel individual info
-    tgp_dict = {'EUR': {}, 'EAS': {}, 'AFR': {}}
+    tgp_dict = {'EUR': {}, 'EAS': {}, 'AFR': {}, 'AMR': {}}
     for line in tgp_info:
         line = line.strip().split()
         if line[2] in tgp_dict.keys() and line[1]:
@@ -50,9 +50,10 @@ def main(args):
 
     #  choose individuals for LD reference panels corresponding to each phenotype and meta-analysis
     analysis_folders = ['apcdr_bbj_ukb_10k_eur_holdout_meta', 'apcdr_ukb_10k_eur_holdout_meta',
-                        'bbj_ukb_10k_eur_holdout_meta']
+                        'bbj_ukb_10k_eur_holdout_meta', 'bbj_page_ukb_10k_eur_holdout_meta']
     for pheno in ss_dict:
-        for analysis in analysis_folders:
+        #for analysis in analysis_folders:
+        for analysis in ['bbj_page_ukb_10k_eur_holdout_meta']:
             if args.pops_to_clump == 'apcdr_bbj_ukb_10k_eur_holdout_meta':
                 random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'EUR', args.tmp_dir)
                 random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'EAS', args.tmp_dir, append=True)
@@ -65,6 +66,11 @@ def main(args):
                 random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'EUR', args.tmp_dir)
                 random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'EAS', args.tmp_dir,
                             append=True)
+            elif args.pops_to_clump == 'bbj_page_ukb_10k_eur_holdout_meta':
+                random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'EUR', args.tmp_dir)
+                random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'EAS', args.tmp_dir, append=True)
+                random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'AFR', args.tmp_dir, append=True)
+                random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'AMR', args.tmp_dir, append=True)
             # elif args.pops_to_clump == 'ukb_10k_eur_holdout_meta':
             #     random_pops(analysis, ss_dict[pheno], ss_info_header_dict, tgp_dict, 'EUR', args.tmp_dir)
             # #  this case a little trickier:
@@ -75,7 +81,7 @@ def main(args):
 
     #  use plink to make phenotype- and analysis-specific LD reference panels
     #for analysis in analysis_folders:
-    for analysis in analysis_folders:
+    for analysis in ['bbj_page_ukb_10k_eur_holdout_meta']:
         print(analysis)
         subprocess.check_call(
             'qsub /humgen/atgu1/fs03/armartin/ginger/apcdr/sumstats/ld_panel_clump.sh ' + analysis,

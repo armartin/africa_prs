@@ -2,6 +2,7 @@ library(tidyverse)
 library(furrr)
 library(tictoc)
 library(cowplot)
+library(gghalves)
 # library(plyr)
 # library(doParallel)
 # 
@@ -24,7 +25,11 @@ date(); pca_unrel <- read.table('/Users/alicia/daly_lab/manuscripts/knowles_ashl
   filter(used_in_pca_calculation=='true') %>%
   left_join(ukbb_pca, by='s') %>%
   left_join(eur_gwas, by='s')%>%
-  subset(pop=='EUR'&in_gwas==FALSE | pop!='EUR'); date()
+  subset(pop=='EUR'&!in_gwas | pop!='EUR') %>%
+  subset(!pop %in% c('oth', 'OCE')); date()
+
+write.table(pca_unrel %>% select(s, pop), 'ukb31063.gwas_samples.holdout_and_target.txt',
+            row.names=F, quote=F, sep='\t')
 
 afr_unrel <- subset(pca_unrel, pop=='AFR') %>%
   select(s)
@@ -61,37 +66,48 @@ compute_r2 <- function(phenotype, population, p, dataset=all_prs) {
 }
 
 # Read in and wrangle PRS + phenotype + covariate data
-read_phenos <- function(pheno_code, AFR=FALSE) {
+read_phenos <- function(pheno_code, analysis, dirname, AFR=FALSE) {
   print(pheno_code)
-  prs <- read_delim(gzfile(paste0('ukb31063.gwas_holdout.', pheno_code, '_PRS.txt.bgz')), delim='\t') %>%
-    inner_join(pca_unrel) %>%
-    select(-sex)
-  
-  if(AFR) {
-    prs <- prs %>% 
-      select(-(PC1:PC20), -pop) %>%
-      inner_join(afr_labels)
+  prs_file <- paste0(dirname, pheno_code, '_PRS.txt.bgz')
+  if (file.exists(prs_file)) {
+    prs <- read_delim(gzfile(prs_file), delim='\t') %>%
+      inner_join(pca_unrel) %>%
+      select(-sex)
+    
+    if(AFR) {
+      prs <- prs %>% 
+        select(-(PC1:PC20), -pop) %>%
+        inner_join(afr_labels)
+    }
+    
+    prs <- prs %>%
+      gather('p_threshold', 'PRS', num_range('s', 1:10)) %>%
+      mutate(analysis=analysis)
+    prs$pheno_code <- pheno_code
+    return(prs)
   }
-  
-  prs <- prs %>%
-    gather('p_threshold', 'PRS', num_range('s', 1:10))
-  prs$pheno_code <- pheno_code
-  return(prs)
 }
 
-pheno_codes <- c("4080", "4079", "21001", "21002", "50", "49", "48", "30620", "30600", "30610", "30650", "30840", "30690", "30730", "30760", "30780", "30870", "30000", "30010", "30020", "30030", "30040", "30050", "30060", "30070", "30080", "30100", "30200", "30180", "30190", "30210", "30220", "30120", "30140", "30130", "30150", "30160")
+#pheno_codes <- c("4080", "4079", "21001", "21002", "50", "49", "48", "30620", "30600", "30610", "30650", "30840", "30690", "30730", "30760", "30780", "30870", "30000", "30010", "30020", "30030", "30040", "30050", "30060", "30070", "30080", "30100", "30200", "30180", "30190", "30210", "30220", "30120", "30140", "30130", "30150", "30160")
+pheno_codes <- as.character(pheno_code %>% .$pheno_code)
 p_thresholds <- paste0('s', 1:10)
 
-all_prs <- map_df(pheno_codes, read_phenos)
-afr_prs <- map_df(pheno_codes, function(x) read_phenos(x, TRUE))
+ukb_prs <- map_df(pheno_codes, function(x) read_phenos(x, analysis='UKB', dirname = 'ukb_10k_eur_holdout/'))
+apcdr_bbj_ukb_prs <- map_df(pheno_codes, function(x) read_phenos(x, analysis='BBJ+UGR+UKB', dirname = 'apcdr_bbj_ukb_10k_eur_holdout_meta/'))
+apcdr_ukb_prs <- map_df(pheno_codes, function(x) read_phenos(x, analysis='UGR+UKB', dirname = 'apcdr_ukb_10k_eur_holdout_meta/'))
+bbj_ukb_prs <- map_df(pheno_codes, function(x) read_phenos(x, analysis='BBJ+UKB', dirname = 'bbj_ukb_10k_eur_holdout_meta/'))
+bbj_prs <- map_df(pheno_codes, function(x) read_phenos(x, analysis='BBJ', dirname = 'bbj/'))
+bbj_ukb_page_prs <- map_df(pheno_codes, function(x) read_phenos(x, analysis='BBJ+PAGE+UKB', dirname = 'bbj_page_ukb_10k_eur_holdout_meta/'))
 
-pops <- as.character(unique(all_prs$pop))
+ukb_afr_prs <- map_df(pheno_codes, function(x) read_phenos(x, analysis='UKB', dirname = 'ukb_10k_eur_holdout/', TRUE))
+
+pops <- as.character(unique(ukb_prs$pop))
 pops <- pops[!pops %in% c('OCE', 'oth')]
-afr_pops <- as.character(unique(afr_prs$pop))
+afr_pops <- as.character(unique(ukb_afr_prs$pop))
 
-test <- compute_r2('50', 'EUR', 's5')
+test <- compute_r2('50', 'EUR', 's5', dataset=ukb_prs)
 
-run_r2 <- function(which_pop, phenotypes, dataset=all_prs) {
+run_r2 <- function(which_pop, phenotypes, dataset=ukb_prs) {
   argList <- list(x = phenotypes, y = which_pop, z = p_thresholds)
   crossArg <- cross_df(argList)
   tic(); r2_combined <- pmap(list(crossArg$x, crossArg$y, crossArg$z), function(x, y, z) { compute_r2(x, y, z, dataset) } ); toc()
@@ -101,10 +117,24 @@ run_r2 <- function(which_pop, phenotypes, dataset=all_prs) {
   return(r2_combined2)
 }
 
-r2_combined <- run_r2(pops, pheno_codes)
+r2_comb_bbj <- run_r2(pops, unique(bbj_prs$pheno_code), dataset=bbj_prs)
+write.table(r2_comb_bbj, 'ukbb_holdout.bbj.r2.txt', quote = F, row.names = F, sep='\t'); 
+r2_comb_apcdr_bbj_ukb_prs <- run_r2(pops, unique(apcdr_bbj_ukb_prs$pheno_code), dataset=apcdr_bbj_ukb_prs)
+write.table(r2_comb_apcdr_bbj_ukb_prs, 'ukbb_holdout.apcdr_bbj_ukb_prs.r2.txt', quote = F, row.names = F, sep='\t'); 
+r2_comb_apcdr_ukb_prs <- run_r2(pops, unique(apcdr_ukb_prs$pheno_code), dataset=apcdr_ukb_prs)
+write.table(r2_comb_apcdr_ukb_prs, 'ukbb_holdout.apcdr_ukb_prs.r2.txt', quote = F, row.names = F, sep='\t'); 
+r2_comb_bbj_ukb_prs <- run_r2(pops, unique(bbj_ukb_prs$pheno_code), dataset=bbj_ukb_prs)
+write.table(r2_comb_bbj_ukb_prs, 'ukbb_holdout.bbj_ukb_prs.r2.txt', quote = F, row.names = F, sep='\t');
+r2_comb_bbj_page_ukb_prs <- run_r2(pops, unique(bbj_ukb_page_prs$pheno_code), dataset=bbj_ukb_page_prs)
+write.table(r2_comb_bbj_page_ukb_prs, 'ukbb_holdout.bbj_page_ukb_prs.r2.txt', quote = F, row.names = F, sep='\t');
+r2_comb_ukb <- run_r2(pops, pheno_codes, dataset=ukb_prs) %>%
+  left_join(pheno_code, by=c('pheno'='ukb_code')) %>%
+  mutate(pheno=pheno_code) %>%
+  select(-pheno_code)
+write.table(r2_comb_ukb, 'ukbb_holdout.ukbb_10k_eur_holdout.r2.txt', quote = F, row.names = F, sep='\t')
+
 r2_combined_afr <- run_r2(afr_pops, pheno_codes, afr_prs)
 
-write.table(r2_combined, 'ukbb_holdout.cont.r2.txt', quote = F, row.names = F, sep='\t')
 write.table(r2_combined_afr, 'ukbb_holdout.afr.r2.txt', quote = F, row.names = F, sep='\t')
 
 
@@ -184,31 +214,148 @@ ggsave('ukb_continent_africa_apcdr_rel_r2.pdf', p1, width=10, height=6)
 
 # Compute prediction accuracy from meta-analysis PRS ----------------------
 
-# Read in and wrangle PRS + phenotype + covariate data
-read_phenos_meta <- function(pheno_code, AFR=FALSE) {
-  print(pheno_code)
-  prs <- read_delim(gzfile(paste0('apcdr_ukb_10k_eur_holdout_meta/', pheno_code, '_PRS.txt.bgz')), delim='\t') %>%
-    inner_join(pca_unrel) %>%
-    select(-sex)
-  
-  if(AFR) {
-    prs <- prs %>% 
-      select(-(PC1:PC20), -pop) %>%
-      inner_join(afr_labels)
-  }
-  
-  prs <- prs %>%
-    gather('p_threshold', 'PRS', num_range('s', 1:10))
-  prs$pheno_code <- pheno_code
-  return(prs)
-}
 
-phenos <- c('ALP', 'ALT', 'AST', 'Albumin', 'BASO', 'BMI', 'Bilirubin', 'Cholesterol', 'DBP', 'EOS', 'GGT', 'HCT', 'HC', 'HDL', 'HT', 'Hb', 'LDL', 'LYMPH', 'MCHC', 'MCH', 'MCV', 'MONO', 'NEU', 'PLT', 'RBC', 'RDW', 'SBP', 'TG', 'WBC', 'WC', 'WT')
-all_prs_meta <- map_df(phenos, read_phenos_meta)
-all_prs_meta$pop <- as.character(all_prs_meta$pop)
+r2_comb_ukb <- read.table('ukbb_holdout.ukbb_10k_eur_holdout.r2.txt', header=T) %>% 
+  mutate(analysis='UKB') # need to turn pheno into 
+r2_comb_apcdr_bbj_ukb_prs <- read.table('ukbb_holdout.apcdr_bbj_ukb_prs.r2.txt', header=T) %>% 
+  mutate(analysis='BBJ+UGR+UKB')
+r2_comb_apcdr_ukb_prs <- read.table('ukbb_holdout.apcdr_ukb_prs.r2.txt', header=T) %>%
+  mutate(analysis='UGR+UKB')
+r2_comb_bbj_ukb_prs <- read.table('ukbb_holdout.bbj_ukb_prs.r2.txt', header=T) %>%
+  mutate(analysis='BBJ+UKB')
+r2_comb_bbj_prs <- read.table('ukbb_holdout.bbj.r2.txt', header=T) %>%
+  mutate(analysis='BBJ')
+r2_comb_bbj_page_ukb_prs <- read.table('ukbb_holdout.bbj_page_ukb_prs.r2.txt', header=T) %>%
+  mutate(analysis='BBJ+PAGE+UKB')
 
-r2_meta <- run_r2(pops, phenos, dataset=all_prs_meta)
-write.table(r2_meta, 'apcdr_ukb_10k_eur_holdout_meta/ukbb_holdout.ukb_ugr.cont.r2.txt', quote = F, row.names = F, sep='\t')
+r2_comb_meta <- bind_rows(r2_comb_ukb, r2_comb_apcdr_bbj_ukb_prs, r2_comb_apcdr_ukb_prs, r2_comb_bbj_ukb_prs, r2_comb_bbj_prs, r2_comb_bbj_page_ukb_prs)
+
+max_r2_meta <- r2_comb_meta %>%
+  group_by(pheno, pop, analysis) %>%
+  arrange(desc(r2)) %>%
+  slice(1)
+best_eur_pred <- max_r2_meta %>%
+  group_by(pheno) %>%
+  subset(analysis=='UKB') %>%
+  mutate(best_eur_pred=max(r2 * (pop=='EUR'))) %>%
+  select(pheno, best_eur_pred) %>%
+  distinct()
+
+r2_summarize_meta <- max_r2_meta %>%
+  left_join(best_eur_pred, by='pheno') %>%
+  group_by(pop, pheno, analysis) %>%
+  dplyr::mutate(rel_eur = r2 / best_eur_pred) %>%
+  subset(CI_97.5-CI_2.5 < 0.1)
+
+mean_r2_meta <- r2_summarize_meta %>%
+  group_by(pop, analysis) %>%
+  summarise(mean_r2=mean(r2), mean_rel_eur = mean(rel_eur), sem_rel_eur=sd(rel_eur)/sqrt(n()),
+            median_r2=median(r2), median_rel_eur=median(rel_eur), mad_rel_eur=mad(rel_eur)/sqrt(n())) %>%
+  arrange(desc(mean_rel_eur))
+
+argList <- list(analysis = unique(mean_r2_meta$analysis), pop = unique(mean_r2_meta$pop))
+plot_order <- cross_df(argList) %>%
+  mutate(analysis_value = case_when(analysis=='BBJ' ~ 1,
+                                    analysis=='BBJ+UGR+UKB' ~ 2,
+                                    analysis=='UGR+UKB' ~ 3,
+                                    analysis=='UKB' ~ 4,
+                                    analysis=='BBJ+PAGE+UKB' ~ 5,
+                                    analysis=='BBJ+UKB' ~ 6),
+         pop_value = case_when(pop == 'EUR' ~ 1,
+                               pop == 'AMR' ~ 2,
+                               pop == 'EAS' ~ 3,
+                               pop == 'CSA' ~ 4,
+                               pop == 'MID' ~ 5,
+                               pop == 'AFR' ~ 6)) %>%
+  mutate(analysis_order = analysis_value + 7 * pop_value - 7)
+
+r2_summarize_meta <- r2_summarize_meta %>%
+  left_join(mean_r2_meta, by=c('pop', 'analysis')) %>%
+  left_join(plot_order, by=c('pop', 'analysis')) %>%
+  mutate(analysis_order_jitter = jitter(analysis_order, amount=0.1),
+         ids = paste(pop, pheno, sep='_'))
+
+r2_summarize_meta$pop <- factor(r2_summarize_meta$pop, levels = unique(mean_r2_meta$pop))
+
+style_sheet <- read.csv('/Users/alicia/daly_lab/grants/neurogap/U01 PUMAS/pca/tgp_color_style_sheet.csv', header=T)
+color_vec <- as.character(style_sheet$Color)
+names(color_vec) <- style_sheet$Population
+
+p_meta <- ggplot(r2_summarize_meta, aes(x=pop, y=rel_eur, fill=pop)) +
+  facet_wrap(~analysis, scales='free_x', shrink=T) +
+  geom_violin() +
+  scale_fill_manual(values=color_vec) +
+  geom_point(aes(x=pop, y=median_rel_eur), color='black') +
+  geom_errorbar(aes(ymin=median_rel_eur - mad_rel_eur, ymax=median_rel_eur + mad_rel_eur),color='black', width=0.1) +
+  labs(x='Population', y='Prediction accuracy\n(Relative to Europeans)') +
+  theme_bw() +
+  guides(fill=F) +
+  theme(axis.text = element_text(color='black', angle=45, hjust=1),
+        text = element_text(size=16))
+
+eur_order <- r2_summarize_meta %>%
+  group_by(pop, analysis) %>%
+  summarize(RA=median(rel_eur, na.rm=T)) %>%
+  subset(pop=='EUR') %>%
+  arrange(RA)
+
+p_meta_points <- ggplot(r2_summarize_meta, aes(y=rel_eur)) +
+   geom_point(aes(x=analysis_order_jitter, color=pop), size=1.5, alpha=0.6) +
+   geom_line(aes(x=analysis_order_jitter, group=ids), color='lightgrey') +
+  
+  geom_violin(#data = r2_summarize_meta %>% filter(analysis_value %% 4 == 1), # UKB
+                   aes(x=analysis_order, y=rel_eur, group=analysis_order, fill=pop), 
+                   alpha=0.6,
+                   position = position_nudge(x=-0.3),
+                   draw_quantiles = c(0.25,.5,.75)) +
+  # Define additional plot settings
+  theme_classic() +
+  scale_fill_manual(values=color_vec, name='Population') +
+  scale_color_manual(values=color_vec, name='Population') +
+  scale_x_continuous(breaks=r2_summarize_meta$analysis_order, labels=r2_summarize_meta$analysis) +
+  xlab('Discovery cohort') + ylab('Prediction accuracy\n(Relative to UKB Europeans)') +
+  theme(axis.text.x=element_text(angle=45, vjust = 1, hjust = 1),
+        axis.text = element_text(color='black', size=10))
+
+ggsave('meta_rel_r2.pdf', p_meta_points, width=10, height=6)
+
+plot_order_simplify <- cross_df(argList) %>%
+  mutate(analysis_value = case_when(analysis=='UKB' ~ 1,
+                                    analysis=='BBJ+PAGE+UKB' ~ 2),
+         pop_value = case_when(pop == 'EUR' ~ 1,
+                               pop == 'AMR' ~ 2,
+                               pop == 'EAS' ~ 3,
+                               pop == 'CSA' ~ 4,
+                               pop == 'MID' ~ 5,
+                               pop == 'AFR' ~ 6)) %>%
+  mutate(analysis_order = analysis_value + 3 * pop_value - 3)
+
+r2_summarize_meta_simple <- r2_summarize_meta %>%
+  select(-c(pop_value, analysis_order, analysis_value)) %>%
+  left_join(plot_order_simplify, by=c('pop', 'analysis')) %>%
+  filter(!is.na(analysis_order))
+r2_summarize_meta_simple$pop <- factor(r2_summarize_meta_simple$pop, levels = unique(mean_r2_meta$pop))
+
+p_meta_simple <- ggplot(r2_summarize_meta_simple, aes(x=analysis_order, y=rel_eur, group=analysis_order, fill=pop)) +
+  geom_violin(alpha = 0.7, draw_quantiles = c(0.25,.5,.75)) +
+  # Define additional plot settings
+  theme_classic() +
+  scale_fill_manual(values=color_vec, name='Population') +
+  scale_color_manual(values=color_vec, name='Population') +
+  scale_x_continuous(breaks=r2_summarize_meta_simple$analysis_order, labels=r2_summarize_meta_simple$analysis) +
+  xlab('Discovery cohort') + ylab('Prediction accuracy\n(Relative to UKB Europeans)') +
+  theme(text = element_text(size=14),
+    axis.text.x=element_text(angle=45, vjust = 1, hjust = 1))
+        #axis.text = element_text(color='black', size=10))
+ggsave('meta_rel_r2_simple.pdf', p_meta_simple, width=10, height=6)
+
+max_r2 <- max_r2 %>% 
+  left_join(pheno_code, by=c('pheno'='ukb_code'))
+pop_order <- max_r2 %>% group_by(pop) %>% summarize(r2=mean(r2)) %>% arrange(desc(r2))
+max_r2$pop <- factor(max_r2$pop, levels=as.character(pop_order$pop))
+pheno_order <- max_r2 %>% arrange(desc(r2)) %>% ungroup() %>% select(pheno_code) %>% unique()
+max_r2$pheno_code <- factor(max_r2$pheno_code, levels=as.character(pheno_order$pheno_code))
+return(max_r2)
 
 # read R2 values from meta-analysis and plot -------------------------------------------------
 
@@ -259,10 +406,6 @@ r2_summarize_meta <- r2_summarize_meta %>%
   left_join(mean_r2, by='pop')
 
 r2_summarize_meta$pop <- factor(r2_summarize_meta$pop, levels = mean_r2$pop)
-
-style_sheet <- read.csv('/Users/alicia/daly_lab/grants/neurogap/U01 ancestral pops/pca/tgp_color_style_sheet.csv', header=T)
-color_vec <- as.character(style_sheet$Color)
-names(color_vec) <- style_sheet$Population
 
 p2 <- ggplot(r2_summarize_meta, aes(x=pop, y=rel_eur, fill=pop)) +
   #facet_wrap(~analysis, scales='free_x', shrink=T) +

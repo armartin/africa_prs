@@ -6,7 +6,7 @@
 #$ -o /humgen/atgu1/fs03/armartin/ginger/apcdr/sumstats/clump_panel/logs
 #$ -l h_vmem=8G
 #$ -N clump
-#$ -t 1-34
+#$ -t 1-2
 
 PHENO_LINE=`sed '1d' meta_analyze_ukb_bbj_ugr.txt | sed "${SGE_TASK_ID}q;d"`
 PHENO=`echo $PHENO_LINE | awk '{ print $1 }'`
