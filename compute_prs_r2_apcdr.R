@@ -90,7 +90,7 @@ write.table(r2_combined, 'apcdr_from_ukbb.r2.txt', quote = F, row.names = F, sep
 # Plot R^2 results --------------------------------------------------------
 
 r2_combined <- read.table('apcdr_from_ukbb.r2.txt', header=T)
-phenos_in_all <- as.character(unique(subset(r2_combined, analysis=='BBJ+PAGE+UKB')$pheno))
+phenos_in_all <- as.character(unique(subset(r2_combined, analysis=='BBJ+PAGE+UKB' & pheno !='HbA1c')$pheno))
 max_r2 <- r2_combined %>%
   group_by(pheno, analysis) %>%
   arrange(desc(r2)) %>%
@@ -108,12 +108,48 @@ p1 <- ggplot(max_r2, aes(x=pheno, y=r2, color=analysis)) +
   geom_point(position=pd) +
   geom_errorbar(aes(ymin=CI95_low, ymax=CI95_high), width=0, position=pd) +
   labs(x='Phenotype', y=bquote('Max'~R^2)) +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size=10),
-        text = element_text(size=12, color='black'),
-        axis.text.y = element_text(size=10))
+  theme_bw() +
+  # theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size=10),
+  #       text = element_text(size=12, color='black'),
+  #       axis.text.y = element_text(size=10)) +
+  theme(axis.text = element_text(color='black'), 
+        axis.text.x = element_text(angle=45, hjust=1),
+        text = element_text(size=16))
 
 save_plot('apcdr_from_ukbb_r2_top.pdf', p1, base_height=6, base_width=10)
+
+r2_summarize <- max_r2 %>%
+  ungroup() %>%
+  group_by(pheno) %>%
+  dplyr::mutate(best_eur_pred=max(r2 * (analysis=='UKB'))) %>%
+  group_by(analysis, pheno) %>%
+  dplyr::mutate(rel_eur = r2 / best_eur_pred) %>%
+  subset(CI_97.5-CI_2.5 < 0.1)
+mean_r2 <- r2_summarize %>%
+  group_by(analysis) %>%
+  summarise(mean_r2=mean(r2), mean_rel_eur = mean(rel_eur), sem_rel_eur=sd(rel_eur)/sqrt(n()),
+            median_r2=median(r2), median_rel_eur=median(rel_eur), mad_rel_eur=mad(rel_eur)/sqrt(n())) %>%
+  arrange(desc(mean_rel_eur))
+r2_summarize <- r2_summarize %>%
+  left_join(mean_r2, by='analysis')
+
+
+p2 <- ggplot(r2_summarize, aes(x=analysis, y=rel_eur, fill=analysis)) +
+  #facet_wrap(~analysis, scales='free_x', shrink=T) +
+  geom_violin() +
+  #scale_fill_manual(values=color_vec) +
+  geom_point(aes(x=analysis, y=median_rel_eur), color='black') +
+  geom_errorbar(aes(ymin=median_rel_eur - mad_rel_eur, ymax=median_rel_eur + mad_rel_eur),color='black', width=0.1) +
+  labs(x='Population', y='Prediction accuracy\n(Relative to UKB only)') +
+  theme_bw() +
+  guides(fill=F) +
+  #ylim(0,10) +
+  theme(axis.text = element_text(color='black'),
+        axis.text.x = element_text(angle=45, hjust=1),
+        text = element_text(size=16))
+
+p <- plot_grid(p1, p2, labels = c('a', 'b'), rel_widths=c(2,1), align='h')
+ggsave('apcdr_from_ukbb_meta_r2_top.pdf', p, width=12, height=6)
 
 r2_combined$rand <- rnorm(nrow(r2_combined), 0, 1)
 r2_combined[sample(1:nrow(r2_combined), round(nrow(r2_combined) * 0.99, 0)), 'rand'] <- 0

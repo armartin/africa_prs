@@ -3,6 +3,7 @@ library(furrr)
 library(tictoc)
 library(cowplot)
 library(gghalves)
+library(ggrepel)
 # library(plyr)
 # library(doParallel)
 # 
@@ -189,7 +190,7 @@ r2_summarize <- r2_summarize %>%
 
 r2_summarize$pop <- factor(r2_summarize$pop, levels = mean_r2$pop)
 
-style_sheet <- read.csv('/Users/alicia/daly_lab/grants/neurogap/U01 ancestral pops/pca/tgp_color_style_sheet.csv', header=T)
+style_sheet <- read.csv('/Users/alicia/daly_lab/grants/neurogap/U01 PUMAS/pca/tgp_color_style_sheet.csv', header=T)
 color_vec <- as.character(style_sheet$Color)
 names(color_vec) <- style_sheet$Population
 
@@ -293,6 +294,8 @@ p_meta <- ggplot(r2_summarize_meta, aes(x=pop, y=rel_eur, fill=pop)) +
   theme(axis.text = element_text(color='black', angle=45, hjust=1),
         text = element_text(size=16))
 
+ggsave('p_meta_cohorts.pdf', p_meta, height=6, width=10)
+
 eur_order <- r2_summarize_meta %>%
   group_by(pop, analysis) %>%
   summarize(RA=median(rel_eur, na.rm=T)) %>%
@@ -324,16 +327,26 @@ plot_order_simplify <- cross_df(argList) %>%
                                     analysis=='BBJ+PAGE+UKB' ~ 2),
          pop_value = case_when(pop == 'EUR' ~ 1,
                                pop == 'AMR' ~ 2,
-                               pop == 'EAS' ~ 3,
+                               pop == 'MID' ~ 3,
                                pop == 'CSA' ~ 4,
-                               pop == 'MID' ~ 5,
+                               pop == 'EAS' ~ 5,
                                pop == 'AFR' ~ 6)) %>%
+  mutate(analysis_order = analysis_value + 4 * pop_value - 4)
+
+plot_order_simplify2 <- cross_df(argList) %>%
+  mutate(analysis_value = case_when(analysis=='UKB' ~ 1,
+                                    analysis=='BBJ+PAGE+UKB' ~ 2),
+         pop_value = case_when(pop == 'EUR' ~ 1,
+                               pop == 'AMR' ~ 2,
+                               pop == 'EAS' ~ 3,
+                               pop == 'AFR' ~ 4)) %>%
   mutate(analysis_order = analysis_value + 3 * pop_value - 3)
 
 r2_summarize_meta_simple <- r2_summarize_meta %>%
   select(-c(pop_value, analysis_order, analysis_value)) %>%
   left_join(plot_order_simplify, by=c('pop', 'analysis')) %>%
-  filter(!is.na(analysis_order))
+  filter(!is.na(analysis_order)) %>%
+  mutate(analysis_order_jitter = jitter(analysis_order, amount=0.1))
 r2_summarize_meta_simple$pop <- factor(r2_summarize_meta_simple$pop, levels = unique(mean_r2_meta$pop))
 
 p_meta_simple <- ggplot(r2_summarize_meta_simple, aes(x=analysis_order, y=rel_eur, group=analysis_order, fill=pop)) +
@@ -349,6 +362,26 @@ p_meta_simple <- ggplot(r2_summarize_meta_simple, aes(x=analysis_order, y=rel_eu
         #axis.text = element_text(color='black', size=10))
 ggsave('meta_rel_r2_simple.pdf', p_meta_simple, width=10, height=6)
 
+r2_summarize_meta_simple2 <- r2_summarize_meta %>%
+  select(-c(pop_value, analysis_order, analysis_value)) %>%
+  left_join(plot_order_simplify2, by=c('pop', 'analysis')) %>%
+  filter(!is.na(analysis_order))
+r2_summarize_meta_simple2$pop <- factor(r2_summarize_meta_simple2$pop, levels = unique(mean_r2_meta$pop))
+
+p_meta_simple2 <- ggplot(r2_summarize_meta_simple2, aes(x=analysis_order, y=rel_eur, group=analysis_order, fill=pop)) +
+  geom_violin(alpha = 0.7, draw_quantiles = c(0.25,.5,.75)) +
+  # Define additional plot settings
+  theme_classic() +
+  scale_fill_manual(values=color_vec, name='Ancestry\ngroup') +
+  scale_color_manual(values=color_vec, name='Ancestry\ngroup') +
+  scale_x_continuous(breaks=r2_summarize_meta_simple$analysis_order, labels=r2_summarize_meta_simple$analysis) +
+  xlab('Discovery cohort') + ylab('Prediction accuracy\n(Relative to UKB Europeans)') +
+  theme(text = element_text(size=14),
+        axis.text.x=element_text(angle=45, vjust = 1, hjust = 1),
+        axis.text = element_text(color='black'))
+#axis.text = element_text(color='black', size=10))
+ggsave('meta_rel_r2_simple2.png', p_meta_simple2, width=6, height=4)
+
 max_r2 <- max_r2 %>% 
   left_join(pheno_code, by=c('pheno'='ukb_code'))
 pop_order <- max_r2 %>% group_by(pop) %>% summarize(r2=mean(r2)) %>% arrange(desc(r2))
@@ -356,6 +389,43 @@ max_r2$pop <- factor(max_r2$pop, levels=as.character(pop_order$pop))
 pheno_order <- max_r2 %>% arrange(desc(r2)) %>% ungroup() %>% select(pheno_code) %>% unique()
 max_r2$pheno_code <- factor(max_r2$pheno_code, levels=as.character(pheno_order$pheno_code))
 return(max_r2)
+
+
+# R2 values from BBJ+PAGE+UKB vs UKB only ---------------------------------
+
+afr_outliers <- r2_summarize_meta_simple %>% filter(ids %in% c('AFR_MCHC', 'AFR_WBC'))
+amr_outliers <- r2_summarize_meta_simple %>% filter(ids == 'AMR_MCHC')
+
+p_meta_bbj_page_ukb <- ggplot(r2_summarize_meta_simple, aes(x=analysis_order, y=rel_eur, group=analysis_order, fill=pop)) +
+  geom_point(aes(x=analysis_order_jitter, color=pop), size=1.5, alpha=0.6) +
+  geom_line(aes(x=analysis_order_jitter, group=ids), color='lightgrey') + 
+  geom_line(data=afr_outliers, aes(x=analysis_order_jitter, group=ids), color=color_vec['AFR']) + 
+  geom_line(data=amr_outliers, aes(x=analysis_order_jitter, group=ids), color=color_vec['AMR']) + 
+  geom_text_repel(data=subset(afr_outliers, analysis!="UKB"), 
+                  aes(x=analysis_order_jitter, y=rel_eur, label=pheno), nudge_x = -0.5) +
+  geom_text_repel(data=subset(amr_outliers, analysis!="UKB"), 
+                  aes(x=analysis_order_jitter, y=rel_eur, label=pheno), nudge_x = -0.5) +
+  
+  geom_half_violin(data = r2_summarize_meta_simple %>% filter(analysis_order %% 2 == 1), 
+                   aes(x=analysis_order, y=rel_eur, group=analysis_order, fill=pop), 
+                   position = position_nudge(x=-0.3),
+                   draw_quantiles = c(0.25,.5,.75)) +
+  geom_half_violin(data = r2_summarize_meta_simple %>% filter(analysis_order %% 2 == 0), 
+                   aes(x=analysis_order, y=rel_eur, group=analysis_order, fill=pop), 
+                   position = position_nudge(x=0.3),
+                   draw_quantiles = c(0.25,.5,.75), side='r') +
+  # Define additional plot settings
+  theme_classic() +
+  scale_fill_manual(values=color_vec, name='Population') +
+  scale_color_manual(values=color_vec, name='Population') +
+  scale_x_continuous(breaks=r2_summarize_meta_simple$analysis_order, labels=r2_summarize_meta_simple$analysis) +
+  xlab('Discovery cohort') + ylab('Prediction accuracy\n(Relative to UKB European ancestry)') +
+  theme(text = element_text(size=14),
+        axis.text.x=element_text(angle=45, vjust = 1, hjust = 1),
+        axis.text = element_text(color='black', size=12))
+
+ggsave('meta_rel_r2_bbj_page_ukb.png', p_meta_bbj_page_ukb, width=10, height=6)
+
 
 # read R2 values from meta-analysis and plot -------------------------------------------------
 

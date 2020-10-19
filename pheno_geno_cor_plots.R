@@ -31,6 +31,8 @@ corrplot(ukb_cor, method='circle', order='hclust', tl.col='black')
 dev.off()
 
 ukb_clust_order <- colnames(ukb_cor)[corrMatOrder(ukb_cor, order="hclust")]
+write.table(ukb_clust_order, 'ukb_clust_order.txt', row.names = F, col.names = F, quote = F)
+ukb_clust_order <- as.character(read.table('ukb_clust_order.txt')$V1)
 
 # Phenotype correlations (GPC) --------------------------------------------
 

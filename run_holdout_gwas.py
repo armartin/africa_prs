@@ -1,4 +1,4 @@
-import hail as hl
+qimport hail as hl
 import argparse
 import pandas as pd
 
@@ -14,7 +14,15 @@ def get_overlapping_phenos(apcdr_ukb, gwas_phenos, gwas_biomarkers, pheno_table,
     # get which phenotypes exist in apcdr data
     pheno_gwas = hl.import_table(apcdr_ukb)
     pheno_gwas = {row['pheno_code']: row['ukb_code'] for row in pheno_gwas.collect()}
-    del pheno_gwas['WHR']
+    incl_whr = False
+    if 'WHR' in pheno_gwas:
+        del pheno_gwas['WHR']
+        incl_whr = True
+
+    if 'EA' in pheno_gwas:
+        educ = hl.import_table(
+            'gs://ukb-diverse-pops/Phenotypes/Everyone/PHESANT_final_output/January_2020_plus_pharma_and_updated_codings/phesant_output_multi_ancestry_combined_both_sexes_no_sex_specific_educ_att_years.tsv',
+            missing='', impute=True, min_partitions=100, key='userId', types={'userId': hl.tstr, 'EDUC_ATT_CAT_ORD': hl.tint})
 
     # read ukb data
     ht_phenotypes = hl.import_table(gwas_phenos, force_bgz=True, missing='', impute=True,
@@ -29,26 +37,40 @@ def get_overlapping_phenos(apcdr_ukb, gwas_phenos, gwas_biomarkers, pheno_table,
             irnt.append(pheno)
         elif pheno in phenotype_cols:
             raw_phenos.append(pheno)
+        elif pheno + '_0' in phenotype_cols:
+            raw_phenos.append(pheno + '_0')
         else:
             biomarker.append(pheno)
-    irnt.append('whr')
 
-    ht_phenotypes = ht_phenotypes.annotate(whr=ht_phenotypes['48_raw'] / ht_phenotypes['49_raw'])
-    ht_phenotypes = irnt_funct(ht_phenotypes.whr, 'whr_irnt').key_by('s')
+    print(pheno_gwas.values())
+    if incl_whr:
+        irnt.append('whr')
+
+        ht_phenotypes = ht_phenotypes.annotate(whr=ht_phenotypes['48_raw'] / ht_phenotypes['49_raw'])
+        ht_phenotypes = irnt_funct(ht_phenotypes.whr, 'whr_irnt').key_by('s')
+
+    if 'EA' in pheno_gwas:
+        ht_phenotypes = ht_phenotypes.annotate(ea=educ[ht_phenotypes.key].EDUC_ATT_CAT_ORD)
+        raw_phenos.append('ea')
+        print('adding EA')
 
     # now select phenotypes that are in apcdr data
     ht_phenos = ht_phenotypes.select(*[x + '_irnt' for x in irnt] + raw_phenos)
+    ht_phenos.show()
 
     # filter biomarkers to codes
     biomarkers = ['cholesterol_irnt', 'hdl_cholesterol_irnt', 'ldl_irnt', 'triglycerides_irnt',
                   'albumin_irnt', 'alkaline_phosphatase_irnt', 'alanine_aminotransferase_irnt',
                   'aspartate_aminotransferase_irnt', 'direct_bilirubin_irnt',
                   'gamma_glutamyltransferase_irnt', 'glycated_haemoglobin_irnt']
-    ht_biomarkers = hl.read_table(gwas_biomarkers).select(*biomarkers)
+    if gwas_biomarkers:
+        ht_biomarkers = hl.read_table(gwas_biomarkers).select(*biomarkers)
 
-    # now join biomarkers with phenotypes
-    ht_all_phenos = ht_phenos.join(ht_biomarkers)
-    ht_all_phenos.write(pheno_table, overwrite=args.overwrite)
+        # now join biomarkers with phenotypes
+        ht_all_phenos = ht_phenos.join(ht_biomarkers)
+        ht_all_phenos.write(pheno_table, overwrite=args.overwrite)
+    else:
+        ht_phenos.write(pheno_table, overwrite=args.overwrite)
 
 
 def run_grouped_regressions(mt, ss_output, pheno, pheno_name):
@@ -58,7 +80,7 @@ def run_grouped_regressions(mt, ss_output, pheno, pheno_name):
         covariates=[1, *[mt['covariates'][x] for x in list(mt['covariates'].keys())]],
         pass_through=['varid', 'rsid'])
 
-    ht = ht.annotate_globals(phenotypes = pheno) # check this
+    ht = ht.annotate_globals(phenotypes=pheno) # check this
 
     ht.write(ss_output + pheno_name + '.ht', overwrite=args.overwrite)
 
@@ -92,7 +114,12 @@ def main(args):
 
     # filter keeping samples in gwas, i.e. exclude holdout samples
     # mt = mt.filter_cols(ht_samples[mt.s].in_gwas == 'TRUE')
-    mt = mt.filter_cols(ht_samples[mt.s].in_gwas == 'FALSE')
+    disc_or_target = 'target'
+    if disc_or_target == 'target':
+        mt = mt.filter_cols(ht_samples[mt.s].in_gwas == 'FALSE')  # target
+    else:
+        mt = mt.filter_cols(ht_samples[mt.s].in_gwas == 'TRUE')  # discovery
+
 
     # mt.write(args.mt, overwrite=args.overwrite)
     #
@@ -111,9 +138,10 @@ def main(args):
     # run_grouped_regressions(mt, args.holdout_ss_output, pheno3, 'pheno3')
     # run_grouped_regressions(mt, args.holdout_ss_output, pheno4, 'pheno4')
     # run_grouped_regressions(mt, args.holdout_ss_output, pheno_leftover, 'pheno_leftover')
-    run_grouped_regressions(mt, args.holdout_ss_output, phenotypes, 'target_holdout')
-
-
+    if disc_or_target == 'target':
+        run_grouped_regressions(mt, args.holdout_ss_output, phenotypes, 'target_holdout2')
+    else:
+        run_grouped_regressions(mt, args.holdout_ss_output, phenotypes, 'discovery')
 
 
 if __name__ == '__main__':
