@@ -92,4 +92,14 @@ p1 <- ggplot(comb_filt_downsample, aes(x=log10p_UKB, y=log10p_BBJ_PAGE_UKB, colo
   theme(text = element_text(size=16),
         axis.text = element_text(color='black'))
 
-ggsave(paste0(args$pheno, '_', args$cohort1, '_vs_', args$cohort2, '.png'), p1, height=7, width=7)
+ggsave(paste0(args$pheno, '_', args$cohort1, '_vs_', args$cohort2, '.png'), p1, height=5, width=5)
+to_write <- subset(comb_filt_downsample, !is.na(color_variants)) %>%
+  subset(!is.na(lab_gene_name)) %>%
+  group_by(lab_gene_name) %>%
+  slice(1) %>%
+  ungroup() %>%
+  arrange(desc(log10p_BBJ_PAGE_UKB))
+
+write.table(to_write, 
+            paste0(args$pheno, '_', args$cohort1, '_vs_', args$cohort2, '.tsv'),
+            row.names=F, quote=F, sep='\t')

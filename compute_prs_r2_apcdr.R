@@ -90,6 +90,27 @@ write.table(r2_combined, 'apcdr_from_ukbb.r2.txt', quote = F, row.names = F, sep
 # Plot R^2 results --------------------------------------------------------
 
 r2_combined <- read.table('apcdr_from_ukbb.r2.txt', header=T)
+max_r2_ukb <- r2_combined %>%
+  filter(analysis=='UKB') %>%
+  arrange(desc(r2)) %>%
+  group_by(pheno) %>%
+  filter(!(pheno %in% c('LYMPHPr', 'NEUPr', 'BASOPr', 'EOSPr', 'MONOPr'))) %>%
+  slice(1) %>%
+  ungroup() %>%
+  arrange(desc(r2))
+max_r2_ukb$pheno <- factor(max_r2_ukb$pheno, levels=max_r2_ukb$pheno)
+
+p0 <- ggplot(max_r2_ukb, aes(x=pheno, y=r2)) +
+  geom_point(position=pd) +
+  geom_errorbar(aes(ymin=CI_2.5, ymax=CI_97.5), width=0) +
+  labs(x='Phenotype', y=bquote('Max'~R^2)) +
+  theme_bw() +
+  theme(axis.text = element_text(color='black'), 
+        axis.text.x = element_text(angle=45, hjust=1),
+        text = element_text(size=16))
+save_plot('apcdr_from_ukbb_r2_top.png', p0, base_height=6, base_width=10)
+  
+
 phenos_in_all <- as.character(unique(subset(r2_combined, analysis=='BBJ+PAGE+UKB' & pheno !='HbA1c')$pheno))
 max_r2 <- r2_combined %>%
   group_by(pheno, analysis) %>%

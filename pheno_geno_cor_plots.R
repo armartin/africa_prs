@@ -58,11 +58,11 @@ mantel.rtest(dist(ukb_cor), dist(M), nrepet=9999)
 # Heritability comparisons ------------------------------------------------
 
 h2_apcdr <- read.table('h2_apcdr.txt', header=T) %>%
-  mutate(study='Uganda GPC', se_low=h2-SE_h2, se_high=h2+SE_h2) %>%
+  mutate(study='Uganda GPC (household)', se_low=h2-SE_h2, se_high=h2+SE_h2) %>%
   select(phenotype, h2, SE_h2, study, se_low, se_high) %>%
   filter(!(phenotype %in% c('HbA1c', 'WHR')))
 h2_ukb <- read.table('h2_ukb.txt', header=T, sep='\t') %>%
-  mutate(study='UK Biobank', phenotype=pheno_code, SE_h2=SE,
+  mutate(study='UK Biobank (volunteer)', phenotype=pheno_code, SE_h2=SE,
          se_low=h2-SE, se_high=h2+SE) %>%
   select(phenotype, h2, SE_h2, study, se_low, se_high) %>%
   filter(!(phenotype %in% c('LYMPHPr', 'NEUPr', 'BASOPr', 'EOSPr', 'MONOPr')))
@@ -70,7 +70,7 @@ h2_comb <- h2_apcdr %>%
   bind_rows(h2_ukb) %>%
   arrange(desc(h2))
 
-h2_comb$phenotype <- factor(h2_comb$phenotype, levels=(subset(h2_comb, study=='Uganda GPC') %>% arrange(desc(h2)))$phenotype)
+h2_comb$phenotype <- factor(h2_comb$phenotype, levels=(subset(h2_comb, study=='Uganda GPC (household)') %>% arrange(desc(h2)))$phenotype)
 pd <- position_dodge(0.5)
 p_h2 <- ggplot(h2_comb, aes(x=phenotype, y=h2, color=study)) +
   geom_point(position=pd) +
@@ -84,7 +84,7 @@ p_h2 <- ggplot(h2_comb, aes(x=phenotype, y=h2, color=study)) +
         text = element_text(size=16, color='black'),
         legend.justification = c(1, 1), legend.position = c(1, 1))
 
-ggsave('h2_apcdr_ukb.pdf', p_h2, height=7, width=7)
+ggsave('h2_apcdr_ukb.png', p_h2, height=7, width=7)
 
 # Genetic correlations (UKB) ----------------------------------------------
 

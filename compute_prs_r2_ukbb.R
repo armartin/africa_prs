@@ -22,7 +22,7 @@ date(); ukbb_pca <- read.table('/Users/alicia/daly_lab/ukbb_diverse_pops/pca/glo
 # get GWAS holdout inds
 eur_gwas <- read.table('ukb31063.gwas_samples.gwas_vs_holdout.txt', header=T)
 # get PCs and unrelated indicator from here
-date(); pca_unrel <- read.table('/Users/alicia/daly_lab/manuscripts/knowles_ashley_response/analysis/ukbb_covariates_all.txt.bgz', header=T) %>%
+date(); pca_unrel <- read.table('/Users/alicia/daly_lab/manuscripts/completed/knowles_ashley_response/analysis/ukbb_covariates_all.txt.bgz', header=T) %>%
   filter(used_in_pca_calculation=='true') %>%
   left_join(ukbb_pca, by='s') %>%
   left_join(eur_gwas, by='s')%>%
@@ -141,10 +141,10 @@ write.table(r2_combined_afr, 'ukbb_holdout.afr.r2.txt', quote = F, row.names = F
 
 # read R2 values and plot -------------------------------------------------
 
-r2_combined <- read.table('ukbb_holdout.cont.r2.txt', header=T)
-r2_combined_afr <- read.table('ukbb_holdout.afr.r2.txt', header=T)
+r2_combined <- read.table('ukbb_holdout.cont.r2.txt', header=T) %>% mutate(pheno=as.character(pheno))
+r2_combined_afr <- read.table('ukbb_holdout.afr.r2.txt', header=T) %>% mutate(pheno=as.character(pheno))
 r2_combined_apcdr <- read.table('../apcdr/prs/apcdr_from_ukbb.r2.txt', header=T) %>%
-  mutate(pop='Uganda', analysis='APCDR Uganda', pheno_code=pheno) %>%
+  mutate(pop='Uganda', analysis='GPC', pheno_code=pheno) %>%
   group_by(pheno, pop) %>%
   arrange(desc(r2)) %>%
   slice(1) %>%
@@ -157,8 +157,8 @@ summarize_r2 <- function(r2) {
     group_by(pheno, pop) %>%
     arrange(desc(r2)) %>%
     slice(1) %>%
-    ungroup() %>%
-    mutate_at(vars(pheno), function(x) as.numeric(as.character(x)))
+    ungroup()# %>%
+    #mutate_at(vars(pheno), function(x) as.numeric(as.character(x)))
   max_r2 <- max_r2 %>% 
     left_join(pheno_code, by=c('pheno'='ukb_code'))
   pop_order <- max_r2 %>% group_by(pop) %>% summarize(r2=mean(r2)) %>% arrange(desc(r2))
@@ -171,7 +171,7 @@ summarize_r2 <- function(r2) {
 max_r2 <- summarize_r2(r2_combined) %>% mutate(analysis='UKB continental ancestry')
 max_r2_afr <- summarize_r2(r2_combined_afr) %>% mutate(analysis='UKB African ancestry')
 max_r2_comb <- max_r2 %>% bind_rows(max_r2_afr) %>% bind_rows(r2_combined_apcdr)
-max_r2_comb$analysis <- factor(max_r2_comb$analysis, levels=c('UKB continental ancestry', 'UKB African ancestry', 'APCDR Uganda'))
+max_r2_comb$analysis <- factor(max_r2_comb$analysis, levels=c('UKB continental ancestry', 'UKB African ancestry', 'GPC'))
 
 r2_summarize <- max_r2_comb %>%
   ungroup() %>%
@@ -179,7 +179,7 @@ r2_summarize <- max_r2_comb %>%
   dplyr::mutate(best_eur_pred=max(r2 * (pop=='EUR'))) %>%
   group_by(pop, pheno_code) %>%
   dplyr::mutate(rel_eur = r2 / best_eur_pred) %>%
-  subset(CI_97.5-CI_2.5 < 0.1)
+  subset(CI_97.5-CI_2.5 < 0.08)
 mean_r2 <- r2_summarize %>%
   group_by(pop) %>%
   summarise(mean_r2=mean(r2), mean_rel_eur = mean(rel_eur), sem_rel_eur=sd(rel_eur)/sqrt(n()),
@@ -195,12 +195,12 @@ color_vec <- as.character(style_sheet$Color)
 names(color_vec) <- style_sheet$Population
 
 p1 <- ggplot(r2_summarize, aes(x=pop, y=rel_eur, fill=pop)) +
-  facet_wrap(~analysis, scales='free_x', shrink=T) +
+  facet_grid(~analysis, scales='free_x', shrink=T, space='free_x') +
   geom_violin() +
   scale_fill_manual(values=color_vec) +
   geom_point(aes(x=pop, y=median_rel_eur), color='black') +
   geom_errorbar(aes(ymin=median_rel_eur - mad_rel_eur, ymax=median_rel_eur + mad_rel_eur),color='black', width=0.1) +
-  labs(x='Population', y='Prediction accuracy\n(Relative to Europeans)') +
+  labs(x='Target population', y='Prediction accuracy\n(Relative to UKB European ancestry)') +
   theme_bw() +
   guides(fill=F) +
   theme(axis.text = element_text(color='black', angle=45, hjust=1),
@@ -210,7 +210,6 @@ p1 <- ggplot(r2_summarize, aes(x=pop, y=rel_eur, fill=pop)) +
 
 #ggsave('ukb_continents_within_africa_rel_r2.pdf', p1, width=8, height=6)
 ggsave('ukb_continent_africa_apcdr_rel_r2.pdf', p1, width=10, height=6)
-
 
 
 # Compute prediction accuracy from meta-analysis PRS ----------------------
@@ -416,15 +415,15 @@ p_meta_bbj_page_ukb <- ggplot(r2_summarize_meta_simple, aes(x=analysis_order, y=
                    draw_quantiles = c(0.25,.5,.75), side='r') +
   # Define additional plot settings
   theme_classic() +
-  scale_fill_manual(values=color_vec, name='Population') +
-  scale_color_manual(values=color_vec, name='Population') +
+  scale_fill_manual(values=color_vec, name='Target\npopulation') +
+  scale_color_manual(values=color_vec, name='Target\npopulation') +
   scale_x_continuous(breaks=r2_summarize_meta_simple$analysis_order, labels=r2_summarize_meta_simple$analysis) +
   xlab('Discovery cohort') + ylab('Prediction accuracy\n(Relative to UKB European ancestry)') +
-  theme(text = element_text(size=14),
+  theme(text = element_text(size=16),
         axis.text.x=element_text(angle=45, vjust = 1, hjust = 1),
         axis.text = element_text(color='black', size=12))
 
-ggsave('meta_rel_r2_bbj_page_ukb.png', p_meta_bbj_page_ukb, width=10, height=6)
+ggsave('meta_rel_r2_bbj_page_ukb.pdf', p_meta_bbj_page_ukb, width=10, height=6)
 
 
 # read R2 values from meta-analysis and plot -------------------------------------------------
@@ -579,7 +578,9 @@ ggsave('ukbb_diverse_pops_afr_r2.pdf', p, width=12, height=6)
 
 # Compare East Africans across cohorts ------------------------------------
 
-apcdr_ukb_east_r2 <- bind_rows(subset(max_r2_afr, pop=='East'), r2_combined_apcdr)
+apcdr_ukb_east_r2 <- bind_rows(subset(max_r2_afr, pop=='East'), r2_combined_apcdr) %>%
+  filter(!grepl('Pr', pheno_code)) %>%
+  filter(!is.na(pheno_code))
 apcdr_ukb_east_r2$pop <- recode_factor(apcdr_ukb_east_r2$pop, East='UKB East Africans')
 pheno_order <- apcdr_ukb_east_r2 %>% arrange(desc(r2)) %>% ungroup() %>% select(pheno_code) %>% unique()
 apcdr_ukb_east_r2$pheno_code <- factor(apcdr_ukb_east_r2$pheno_code, levels=as.character(pheno_order$pheno_code))
@@ -596,13 +597,15 @@ dist_diffs <- dist_diffs %>%
 apcdr_ukb_east_r2$pheno_code <- factor(apcdr_ukb_east_r2$pheno_code, levels=dist_diffs$pheno)
 apcdr_ukb_east_r2 <- apcdr_ukb_east_r2 %>%
   group_by(pop) %>%
-  mutate(median=median(r2), mad=mad(r2))
+  mutate(median=median(r2), mad=mad(r2)) %>%
+  filter(!is.na(pheno_code))
 
 p_uganda_east <- ggplot(apcdr_ukb_east_r2, aes(x=pop, y=r2, fill=pop)) +
   geom_violin() +
   geom_point(aes(x=pop, y=median), color='black') +
   geom_errorbar(aes(ymin=median - mad, ymax=median + mad),color='black', width=0.1) +
-  labs(x='Population', y=bquote(Maximum~trait~R^2)) +
+  scale_fill_brewer(palette='Set1') +
+  labs(x='Target population', y=bquote(Maximum~trait~R^2)) +
   theme_bw() +
   guides(fill=F) +
   theme(axis.text = element_text(color='black', angle=45, hjust=1),
@@ -613,7 +616,7 @@ p3 <- ggplot(apcdr_ukb_east_r2, aes(x=pheno_code, y=r2, color=pop)) + #, shape=p
   geom_point(position=pd) +
   #facet_grid(~sumstats) +
   geom_errorbar(aes(ymin=CI_2.5, ymax=CI_97.5), width=.5, position=pd) +
-  scale_color_brewer(palette='Dark2', name='Dataset') +
+  scale_color_brewer(palette='Set1', name='Target dataset') +
   #scale_shape_manual(name='Population') +
   labs(x='Phenotype', y=bquote(Maximum~R^2)) +
   theme_classic() +
