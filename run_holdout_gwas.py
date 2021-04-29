@@ -1,4 +1,4 @@
-qimport hail as hl
+import hail as hl
 import argparse
 import pandas as pd
 

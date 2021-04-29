@@ -95,7 +95,10 @@ write.table(prs_r2_all, 'dchs_r2.txt', row.names=F, quote=F, sep='\t')
 prs_r2_all <- read.delim('dchs_r2.txt', header=T) %>%
   left_join(pheno_prs_pairs, by=c('prs'='prs_prefix', 'pheno'='pheno')) %>%
   mutate(Ethnicity=case_when(ethnicities=='African ancestry' ~ 'Black/African',
-                            ethnicities=='Mixed ancestry' ~ 'Mixed'))
+                            ethnicities=='Mixed ancestry' ~ 'Mixed')) %>%
+  filter(pheno_rename != 'Education')
+
+prs_r2_all$pheno_rename <- factor(prs_r2_all$pheno_rename, levels=unique(prs_r2_all$pheno_rename)[c(5,1,2,3,4)])
 
 prs_r2_top <- prs_r2_all %>%
   group_by(pheno_rename, Ethnicity) %>%
@@ -112,9 +115,11 @@ p1 <- ggplot(prs_r2_top, aes(x=Ethnicity, y=r2, color=Ethnicity)) +
   scale_color_brewer(palette='Set1') +
   theme_classic() +
   theme(text = element_text(size=14),
-        axis.text.x = element_text(angle=45, vjust=1, hjust=1))
+        axis.text.x = element_text(angle=45, vjust=1, hjust=1),
+        axis.text = element_text(color='black'))
 
-ggsave('dchs_multipheno_r2_all.pdf', p1, height=6, width=8)
+ggsave('dchs_multipheno_r2_all2.pdf', p1, height=6, width=10)
+ggsave('dchs_multipheno_r2_all2.png', p1, height=6, width=10)
 
 
 # Height by tertiles ------------------------------------------------------
